@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Business Card Reader</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -270,6 +269,25 @@
             border-radius: 4px;
         }
 
+        .manual-mode {
+            background: #e3f2fd;
+            border: 2px solid #2196f3;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        .manual-mode h4 {
+            color: #1976d2;
+            margin-bottom: 10px;
+        }
+
+        .manual-mode p {
+            color: #424242;
+            margin-bottom: 15px;
+        }
+
         #fileInput, #cameraInput {
             display: none;
         }
@@ -302,7 +320,7 @@
     <div class="container">
         <div class="header">
             <h1>📇 Business Card Reader</h1>
-            <p>Extract contact information from business cards instantly using AI-powered OCR</p>
+            <p>Extract contact information from business cards instantly</p>
         </div>
 
         <div class="main-content">
@@ -327,8 +345,8 @@
                 </div>
 
                 <div class="loading" id="loading">
-                    <h3>🔍 Analyzing business card...</h3>
-                    <p>Extracting text and information</p>
+                    <h3>🔍 Processing image...</h3>
+                    <p id="loadingText">Loading OCR engine...</p>
                     <div class="progress-bar">
                         <div class="progress-fill" id="progressFill"></div>
                     </div>
@@ -339,6 +357,14 @@
                 <div class="preview-card">
                     <h3>📸 Card Preview</h3>
                     <img id="cardPreview" class="card-image" alt="Business card preview">
+                    
+                    <div class="manual-mode" id="manualMode" style="display: none;">
+                        <h4>⚠️ OCR Processing Failed</h4>
+                        <p>Please manually enter the information from the business card above.</p>
+                        <button class="btn btn-secondary" onclick="enableManualEntry()">
+                            ✏️ Enter Manually
+                        </button>
+                    </div>
                 </div>
                 
                 <div class="preview-card">
@@ -397,6 +423,7 @@
     <script>
         let savedCards = [];
         let currentCardData = {};
+        let ocrWorker = null;
 
         // File input handlers
         document.getElementById('fileInput').addEventListener('change', handleFileSelect);
@@ -453,15 +480,13 @@
                     // Image loaded successfully
                     document.getElementById('cardPreview').src = imageUrl;
                     document.getElementById('previewSection').style.display = 'grid';
+                    document.getElementById('manualMode').style.display = 'none';
                     
-                    // Show loading state
-                    document.getElementById('loading').classList.add('show');
-                    updateProgress(10);
+                    // Clear previous data
+                    clearFormFields();
                     
-                    // Process with Tesseract after a small delay to allow UI update
-                    setTimeout(() => {
-                        recognizeText(imageUrl);
-                    }, 100);
+                    // Try OCR processing
+                    attemptOCRProcessing(imageUrl);
                 };
                 
                 img.onerror = function() {
@@ -478,90 +503,128 @@
             reader.readAsDataURL(file);
         }
 
-        function updateProgress(percent) {
-            document.getElementById('progressFill').style.width = percent + '%';
-        }
-
-        async function recognizeText(imageUrl) {
+        async function attemptOCRProcessing(imageUrl) {
+            document.getElementById('loading').classList.add('show');
+            updateProgress(10);
+            updateLoadingText('Loading OCR engine...');
+            
             try {
-                updateProgress(20);
-                
-                // Initialize Tesseract worker with progress callback
-                const worker = await Tesseract.createWorker({
-                    logger: m => {
-                        if (m.status === 'recognizing text') {
-                            const progress = Math.floor(m.progress * 60) + 20; // 20-80%
-                            updateProgress(progress);
-                        }
-                    }
-                });
+                // Try to load Tesseract.js dynamically
+                if (typeof Tesseract === 'undefined') {
+                    await loadTesseract();
+                }
                 
                 updateProgress(30);
+                updateLoadingText('Initializing OCR worker...');
                 
-                // Load language data
+                // Create worker with timeout
+                const worker = await Promise.race([
+                    Tesseract.createWorker({
+                        logger: m => {
+                            if (m.status === 'recognizing text') {
+                                const progress = Math.floor(m.progress * 60) + 30;
+                                updateProgress(progress);
+                                updateLoadingText('Extracting text from image...');
+                            }
+                        }
+                    }),
+                    new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('OCR initialization timeout')), 15000)
+                    )
+                ]);
+                
+                updateProgress(40);
+                updateLoadingText('Loading language model...');
+                
                 await worker.loadLanguage('eng');
                 await worker.initialize('eng');
                 
-                updateProgress(40);
-                
-                // Set parameters for better business card recognition
-                await worker.setParameters({
-                    tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@.-+()/ ',
-                    tessedit_pageseg_mode: Tesseract.PSM.SINGLE_BLOCK,
-                });
-                
                 updateProgress(50);
+                updateLoadingText('Processing business card...');
                 
-                // Recognize text
-                const { data: { text } } = await worker.recognize(imageUrl);
+                // Recognize text with timeout
+                const result = await Promise.race([
+                    worker.recognize(imageUrl),
+                    new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('OCR processing timeout')), 30000)
+                    )
+                ]);
                 
                 updateProgress(90);
+                updateLoadingText('Extracting information...');
                 
-                // Terminate worker
                 await worker.terminate();
                 
                 updateProgress(100);
                 
-                // Hide loading after a short delay
                 setTimeout(() => {
                     document.getElementById('loading').classList.remove('show');
                     updateProgress(0);
                 }, 500);
                 
-                // Extract information from text
-                if (text && text.trim().length > 0) {
-                    extractInformation(text);
+                if (result.data.text && result.data.text.trim().length > 0) {
+                    extractInformation(result.data.text);
                 } else {
-                    alert('No text found in the image. Please try with a clearer image.');
+                    showManualMode();
                 }
                 
             } catch (error) {
                 console.error('OCR Error:', error);
                 document.getElementById('loading').classList.remove('show');
                 updateProgress(0);
-                
-                // More specific error messages
-                let errorMessage = 'Error processing image. ';
-                if (error.message.includes('network')) {
-                    errorMessage += 'Please check your internet connection.';
-                } else if (error.message.includes('image')) {
-                    errorMessage += 'Please try with a different image format (JPG, PNG).';
-                } else {
-                    errorMessage += 'Please try again with a clearer image.';
-                }
-                
-                alert(errorMessage);
+                showManualMode();
             }
+        }
+
+        function loadTesseract() {
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+                script.onload = resolve;
+                script.onerror = () => {
+                    // Try backup CDN
+                    const backupScript = document.createElement('script');
+                    backupScript.src = 'https://unpkg.com/tesseract.js@5.0.4/dist/tesseract.min.js';
+                    backupScript.onload = resolve;
+                    backupScript.onerror = reject;
+                    document.head.appendChild(backupScript);
+                };
+                document.head.appendChild(script);
+            });
+        }
+
+        function showManualMode() {
+            document.getElementById('manualMode').style.display = 'block';
+        }
+
+        function enableManualEntry() {
+            document.getElementById('manualMode').style.display = 'none';
+            // Focus on the first input field
+            document.getElementById('nameField').focus();
+        }
+
+        function updateProgress(percent) {
+            document.getElementById('progressFill').style.width = percent + '%';
+        }
+
+        function updateLoadingText(text) {
+            document.getElementById('loadingText').textContent = text;
+        }
+
+        function clearFormFields() {
+            document.getElementById('nameField').value = '';
+            document.getElementById('companyField').value = '';
+            document.getElementById('titleField').value = '';
+            document.getElementById('phoneField').value = '';
+            document.getElementById('emailField').value = '';
         }
 
         function extractInformation(text) {
             console.log('Extracted text:', text);
             
-            // Clean up the text
             const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
             const allText = text.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
             
-            // Initialize extracted data
             let extractedData = {
                 name: '',
                 company: '',
@@ -570,19 +633,18 @@
                 email: ''
             };
 
-            // Email pattern - more comprehensive
+            // Email extraction
             const emailPattern = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/gi;
             const emailMatches = allText.match(emailPattern);
             if (emailMatches && emailMatches.length > 0) {
                 extractedData.email = emailMatches[0].toLowerCase();
             }
 
-            // Phone pattern - comprehensive patterns for different formats
+            // Phone extraction
             const phonePatterns = [
                 /\+?1?[-.\s]?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})/g,
                 /\+\d{1,3}[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9}/g,
-                /\(?(\d{3})\)?[-.\s]?(\d{3})[-.\s]?(\d{4})/g,
-                /\d{3}[-.\s]?\d{3}[-.\s]?\d{4}/g
+                /\(?(\d{3})\)?[-.\s]?(\d{3})[-.\s]?(\d{4})/g
             ];
             
             for (let pattern of phonePatterns) {
@@ -596,11 +658,10 @@
                 }
             }
 
-            // Extract name - look for capitalized words that could be names
+            // Name extraction
             const namePatterns = [
                 /\b[A-Z][a-z]{2,}\s+[A-Z][a-z]{2,}\b/g,
-                /\b[A-Z][a-z]+\s+[A-Z]\.\s+[A-Z][a-z]+\b/g,
-                /\b[A-Z][a-z]+\s+[A-Z][a-z]+\s+[A-Z][a-z]+\b/g
+                /\b[A-Z][a-z]+\s+[A-Z]\.\s+[A-Z][a-z]+\b/g
             ];
             
             for (let pattern of namePatterns) {
@@ -608,66 +669,51 @@
                 if (nameMatches) {
                     for (let match of nameMatches) {
                         if (!match.includes('@') && !phonePatterns.some(p => p.test(match))) {
-                            // Check if it's not a common business term
-                            const businessTerms = ['LLC', 'INC', 'CORP', 'LTD', 'COMPANY', 'BUSINESS', 'SERVICES'];
-                            if (!businessTerms.some(term => match.toUpperCase().includes(term))) {
-                                extractedData.name = match.trim();
-                                break;
-                            }
+                            extractedData.name = match.trim();
+                            break;
                         }
                     }
                     if (extractedData.name) break;
                 }
             }
 
-            // Extract title - look for common job titles
+            // Title extraction
             const titleKeywords = [
-                'ceo', 'cto', 'cfo', 'coo', 'president', 'vice president', 'vp',
-                'manager', 'director', 'senior', 'junior', 'lead', 'head',
-                'founder', 'co-founder', 'owner', 'partner',
-                'developer', 'engineer', 'architect', 'designer',
-                'analyst', 'consultant', 'specialist', 'coordinator',
-                'assistant', 'executive', 'officer', 'supervisor',
-                'sales', 'marketing', 'hr', 'human resources'
+                'ceo', 'cto', 'cfo', 'president', 'manager', 'director', 'founder',
+                'developer', 'engineer', 'analyst', 'consultant', 'specialist'
             ];
             
             for (let line of lines) {
                 const lowerLine = line.toLowerCase();
                 if (titleKeywords.some(keyword => lowerLine.includes(keyword)) && 
                     !line.includes('@') && 
-                    !phonePatterns.some(p => p.test(line)) &&
-                    line !== extractedData.name) {
+                    !phonePatterns.some(p => p.test(line))) {
                     extractedData.title = line.trim();
                     break;
                 }
             }
 
-            // Extract company - heuristic approach
+            // Company extraction
             for (let line of lines) {
                 if (line.length > 2 && line.length < 100 && 
                     !line.includes('@') && 
                     !phonePatterns.some(p => p.test(line)) &&
                     line !== extractedData.name && 
-                    line !== extractedData.title &&
-                    !titleKeywords.some(keyword => line.toLowerCase().includes(keyword))) {
+                    line !== extractedData.title) {
                     
-                    // Check if it contains business indicators
-                    const businessIndicators = ['corp', 'inc', 'llc', 'ltd', 'company', 'co.', 'group', 'solutions', 'services', 'consulting'];
+                    const businessIndicators = ['corp', 'inc', 'llc', 'ltd', 'company', 'solutions', 'services'];
                     const hasBusinessIndicator = businessIndicators.some(indicator => 
                         line.toLowerCase().includes(indicator)
                     );
                     
-                    // Or if it's in all caps (common for company names)
-                    const isAllCaps = line === line.toUpperCase() && line.length > 2;
-                    
-                    if (hasBusinessIndicator || isAllCaps || (!extractedData.company && line.length > 3)) {
+                    if (hasBusinessIndicator || line === line.toUpperCase()) {
                         extractedData.company = line.trim();
                         break;
                     }
                 }
             }
 
-            // Fill in the form fields
+            // Fill form fields
             document.getElementById('nameField').value = extractedData.name;
             document.getElementById('companyField').value = extractedData.company;
             document.getElementById('titleField').value = extractedData.title;
@@ -675,9 +721,6 @@
             document.getElementById('emailField').value = extractedData.email;
 
             currentCardData = extractedData;
-            
-            // Log the extracted data for debugging
-            console.log('Extracted data:', extractedData);
         }
 
         function saveCard() {
@@ -698,14 +741,7 @@
             savedCards.push(cardData);
             updateCardsTable();
             
-            // Clear the form
-            document.getElementById('nameField').value = '';
-            document.getElementById('companyField').value = '';
-            document.getElementById('titleField').value = '';
-            document.getElementById('phoneField').value = '';
-            document.getElementById('emailField').value = '';
-            
-            // Hide preview section
+            clearFormFields();
             document.getElementById('previewSection').style.display = 'none';
             
             alert('Business card saved successfully!');
