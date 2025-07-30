@@ -1641,121 +1641,144 @@
         }
 
         function parseQRData(qrText) {
-            let parsedData = {
-                name: '',
-                company: '',
-                title: '',
-                phone: '',
-                email: '',
-                website: '',
-                address: ''
-            };
-
-            // Check if it's a vCard format
-            if (qrText.includes('BEGIN:VCARD')) {
-                const lines = qrText.split('\n');
-                for (let line of lines) {
-                    if (line.startsWith('FN:')) {
-                        parsedData.name = line.substring(3).trim();
-                    } else if (line.startsWith('ORG:')) {
-                        parsedData.company = line.substring(4).trim();
-                    } else if (line.startsWith('TITLE:')) {
-                        parsedData.title = line.substring(6).trim();
-                    } else if (line.startsWith('TEL:')) {
-                        parsedData.phone = line.substring(4).trim();
-                    } else if (line.startsWith('EMAIL:')) {
-                        parsedData.email = line.substring(6).trim();
-                    } else if (line.startsWith('URL:')) {
-                        parsedData.website = line.substring(4).trim();
-                    } else if (line.startsWith('ADR:')) {
-                        parsedData.address = line.substring(4).trim();
-                    }
-                }
-            } else {
-                // Try to extract information from plain text
-                const allText = qrText.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+            const clientData = { name: '', email: '', phone: '', company: '', notes: '' };
+                console.log('Parsing QR text:', qrText);
                 
-                // Email extraction
-                const emailPattern = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/gi;
-                const emailMatch = allText.match(emailPattern);
-                if (emailMatch) parsedData.email = emailMatch[0].toLowerCase();
-
-                // Phone extraction
-                const phonePatterns = [
-                    /\+?91?[-.\s]?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})/g,
-                    /\+\d{1,3}[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9}/g,
-                    /\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b/g
-                ];
+                // Initialize the efficient name extractor
+                const nameExtractor = new EfficientNameExtractor();
                 
-                for (let pattern of phonePatterns) {
-                    const phoneMatch = allText.match(pattern);
-                    if (phoneMatch && phoneMatch[0].replace(/[^\d]/g, '').length >= 10) {
-                        parsedData.phone = phoneMatch[0].trim();
-                        break;
-                    }
-                }
-
-                // Website extraction
-                const websitePattern = /(?:https?:\/\/)?(?:www\.)?[a-zA-Z0-9][-a-zA-Z0-9]{0,62}(?:\.[a-zA-Z0-9][-a-zA-Z0-9]{0,62})*\.(?:[a-zA-Z]{2,6})/gi;
-                const websiteMatch = allText.match(websitePattern);
-                if (websiteMatch) {
-                    const website = websiteMatch[0];
-                    if (!website.includes('@')) {
-                        parsedData.website = website.startsWith('http') ? website : 'https://' + website;
-                    }
-                }
-
-                // Enhanced name extraction
-                const lines = qrText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
-                
-                // Look for name patterns
-                const namePatterns = [
-                    /\b[A-Z][a-z]+\s+[A-Z][a-z]+\b/g, // First Last
-                    /\b[A-Z][a-z]+\s+[A-Z]\.\s+[A-Z][a-z]+\b/g, // First M. Last
-                    /\b[A-Z][a-z]+\s+[A-Z][a-z]+\s+[A-Z][a-z]+\b/g // First Middle Last
-                ];
-                
-                for (let line of lines) {
-                    // Skip lines that are clearly not names
-                    if (line.includes('@') || phonePatterns.some(p => p.test(line)) || 
-                        line.includes('http') || line.includes('www') || line.length < 3) {
-                        continue;
-                    }
-                    
-                    // Check if line matches name patterns
-                    for (let pattern of namePatterns) {
-                        const nameMatch = line.match(pattern);
-                        if (nameMatch && nameMatch[0].length > 3) {
-                            parsedData.name = nameMatch[0].trim();
-                            break;
+                // Check if it's a vCard format
+                if (qrText.startsWith('BEGIN:VCARD')) {
+                    console.log('Detected vCard format');
+                    const lines = qrText.split('\n');
+                    lines.forEach(line => {
+                        const cleanLine = line.trim();
+                        if (cleanLine.startsWith('FN:')) clientData.name = cleanLine.substring(3);
+                        if (cleanLine.startsWith('N:')) {
+                            const nameParts = cleanLine.substring(2).split(';');
+                            if (!clientData.name && nameParts.length >= 2) {
+                                clientData.name = `${nameParts[1]} ${nameParts[0]}`.trim();
+                            }
                         }
-                    }
+                        if (cleanLine.startsWith('EMAIL:') || cleanLine.includes('EMAIL:')) {
+                            const emailMatch = cleanLine.match(/EMAIL[^:]*:(.*)/i);
+                            if (emailMatch) clientData.email = emailMatch[1].trim();
+                        }
+                        if (cleanLine.startsWith('TEL:') || cleanLine.includes('TEL:')) {
+                            const telMatch = cleanLine.match(/TEL[^:]*:(.*)/i);
+                            if (telMatch) clientData.phone = telMatch[1].trim();
+                        }
+                        if (cleanLine.startsWith('ORG:')) clientData.company = cleanLine.substring(4);
+                    });
+                } else {
+                    console.log('Parsing as plain text with enhanced extraction');
                     
-                    // If no pattern match, use first reasonable line as name
-                    if (!parsedData.name && line.length > 2 && line.length < 50) {
-                        parsedData.name = line;
-                        break;
-                    }
-                }
-
-                // Company extraction from remaining lines
-                for (let line of lines) {
-                    if (line !== parsedData.name && !line.includes('@') && 
-                        !phonePatterns.some(p => p.test(line)) && line.length > 2) {
-                        const businessIndicators = ['corp', 'inc', 'llc', 'ltd', 'company', 'solutions', 'services', 'group', 'tech'];
-                        const hasBusinessIndicator = businessIndicators.some(indicator => 
-                            line.toLowerCase().includes(indicator)
-                        );
+                    // Extract all possible emails and phones
+                    const allEmails = this.extractEmails(qrText);
+                    const allPhones = this.extractPhoneNumbers(qrText);
+                    
+                    // Select the best email and phone
+                    if (allEmails.length > 0) {
+                        clientData.email = allEmails[0];
+                        console.log('Found primary email:', clientData.email);
                         
-                        if (hasBusinessIndicator || line === line.toUpperCase()) {
-                            parsedData.company = line.trim();
-                            break;
+                        // If we have multiple emails, consider adding secondary to notes
+                        if (allEmails.length > 1) {
+                            clientData.notes = `Additional emails: ${allEmails.slice(1).join(', ')}`;
+                            console.log('Found additional emails:', allEmails.slice(1));
+                        }
+                    }
+                    
+                    if (allPhones.length > 0) {
+                        clientData.phone = allPhones[0];
+                        console.log('Found primary phone:', clientData.phone);
+                        
+                        // If we have multiple phones, consider adding secondary to notes
+                        if (allPhones.length > 1) {
+                            const phoneNote = `Additional phones: ${allPhones.slice(1).join(', ')}`;
+                            clientData.notes = clientData.notes 
+                                ? `${clientData.notes}; ${phoneNote}`
+                                : phoneNote;
+                            console.log('Found additional phones:', allPhones.slice(1));
+                        }
+                    }
+                    
+                    // Extract name with context awareness
+                    clientData.name = this.extractNameWithContext(qrText);
+                    if (clientData.name) {
+                        console.log('Found name with context:', clientData.name);
+                    }
+                    
+                    // Enhanced company extraction for QR codes
+                    const lines = qrText.split('\n').filter(line => line.trim().length > 0);
+                    const companyPatterns = [
+                        // vCard ORG field (highest priority)
+                        /^ORG:(.+)$/i,
+                        // Company patterns with suffixes
+                        /(.*?)\s+(Inc\.?|LLC|Corp\.?|Ltd\.?|Company|Co\.?|Corporation|Group|Solutions|Services|Technologies|Tech|Systems|Associates|Partners|Consulting)(?!\w)/i,
+                        // Standalone company names
+                        /^[A-Z][a-zA-Z\s&]+(?:Inc\.?|LLC|Corp\.?|Ltd\.?)$/i,
+                        // Lines that look like company names (no email/phone patterns)
+                        /^[A-Z][a-zA-Z\s&]{2,}$/i
+                    ];
+                    
+                    for (const line of lines) {
+                        const cleanLine = line.trim();
+                        
+                        // Skip if line contains email or phone patterns
+                        if (cleanLine.includes('@') || /\d{7,}/.test(cleanLine)) {
+                            continue;
+                        }
+                        
+                        for (const pattern of companyPatterns) {
+                            const match = cleanLine.match(pattern);
+                            if (match && !clientData.company) {
+                                let companyName = match[1] || match[0];
+                                // Clean up the company name
+                                companyName = companyName.replace(/^ORG:\s*/i, '').trim();
+                                if (companyName.length > 2) {
+                                    clientData.company = companyName;
+                                    console.log('Found company:', clientData.company);
+                                    break;
+                                }
+                            }
+                        }
+                        if (clientData.company) break;
+                    }
+                    
+                    // If we have email but no name, try to extract name from email prefix
+                    if (clientData.email && !clientData.name) {
+                        const emailPrefix = clientData.email.split('@')[0];
+                        const nameFromEmail = emailPrefix
+                            .replace(/[^a-zA-Z]/g, ' ')
+                            .replace(/\s+/g, ' ')
+                            .trim();
+                        
+                        if (nameFromEmail.split(' ').length <= 3) {
+                            const nameCheck = nameExtractor.extractName(nameFromEmail);
+                            if (nameCheck.confidence >= 4) {
+                                clientData.name = nameCheck.name;
+                                console.log('Extracted name from email:', clientData.name);
+                            }
+                        }
+                    }
+                    
+                    // Check if it's just a URL or error code (no contact info)
+                    const isUrl = qrText.match(/^https?:\/\//);
+                    const isErrorCode = qrText.match(/^(ERROR|FAIL|INVALID)/i);
+                    
+                    if (isUrl && !clientData.name && !clientData.email && !clientData.phone) {
+                        // If it's just a URL, try to extract domain as company
+                        const domainMatch = qrText.match(/https?:\/\/([^\/]+)/);
+                        if (domainMatch) {
+                            clientData.company = domainMatch[1].replace('www.', '');
+                            console.log('Extracted company from URL:', clientData.company);
                         }
                     }
                 }
-            }
-
-            return parsedData;
+                
+                console.log('Final extracted data:', clientData);
+                return clientData;
         }
 
         function displayQRResult(data) {
