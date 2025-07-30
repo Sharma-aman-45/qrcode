@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Business Card Reader</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/4.1.1/tesseract.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -431,19 +431,50 @@
         }
 
         function processImage(file) {
+            // Validate file type
+            if (!file.type.startsWith('image/')) {
+                alert('Please select an image file (JPG, PNG, etc.)');
+                return;
+            }
+            
+            // Validate file size (max 10MB)
+            if (file.size > 10 * 1024 * 1024) {
+                alert('Image file is too large. Please select an image smaller than 10MB.');
+                return;
+            }
+            
             const reader = new FileReader();
             reader.onload = function(e) {
                 const imageUrl = e.target.result;
-                document.getElementById('cardPreview').src = imageUrl;
-                document.getElementById('previewSection').style.display = 'grid';
                 
-                // Show loading state
-                document.getElementById('loading').classList.add('show');
-                updateProgress(10);
+                // Create an image element to validate the image
+                const img = new Image();
+                img.onload = function() {
+                    // Image loaded successfully
+                    document.getElementById('cardPreview').src = imageUrl;
+                    document.getElementById('previewSection').style.display = 'grid';
+                    
+                    // Show loading state
+                    document.getElementById('loading').classList.add('show');
+                    updateProgress(10);
+                    
+                    // Process with Tesseract after a small delay to allow UI update
+                    setTimeout(() => {
+                        recognizeText(imageUrl);
+                    }, 100);
+                };
                 
-                // Process with Tesseract
-                recognizeText(imageUrl);
+                img.onerror = function() {
+                    alert('Invalid image file. Please try with a different image.');
+                };
+                
+                img.src = imageUrl;
             };
+            
+            reader.onerror = function() {
+                alert('Error reading file. Please try again.');
+            };
+            
             reader.readAsDataURL(file);
         }
 
@@ -453,33 +484,73 @@
 
         async function recognizeText(imageUrl) {
             try {
+                updateProgress(20);
+                
+                // Initialize Tesseract worker with progress callback
+                const worker = await Tesseract.createWorker({
+                    logger: m => {
+                        if (m.status === 'recognizing text') {
+                            const progress = Math.floor(m.progress * 60) + 20; // 20-80%
+                            updateProgress(progress);
+                        }
+                    }
+                });
+                
                 updateProgress(30);
                 
-                const worker = await Tesseract.createWorker('eng');
+                // Load language data
+                await worker.loadLanguage('eng');
+                await worker.initialize('eng');
+                
+                updateProgress(40);
+                
+                // Set parameters for better business card recognition
+                await worker.setParameters({
+                    tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@.-+()/ ',
+                    tessedit_pageseg_mode: Tesseract.PSM.SINGLE_BLOCK,
+                });
                 
                 updateProgress(50);
                 
+                // Recognize text
                 const { data: { text } } = await worker.recognize(imageUrl);
                 
-                updateProgress(80);
+                updateProgress(90);
                 
+                // Terminate worker
                 await worker.terminate();
                 
                 updateProgress(100);
                 
-                // Hide loading
+                // Hide loading after a short delay
                 setTimeout(() => {
                     document.getElementById('loading').classList.remove('show');
                     updateProgress(0);
                 }, 500);
                 
                 // Extract information from text
-                extractInformation(text);
+                if (text && text.trim().length > 0) {
+                    extractInformation(text);
+                } else {
+                    alert('No text found in the image. Please try with a clearer image.');
+                }
                 
             } catch (error) {
                 console.error('OCR Error:', error);
                 document.getElementById('loading').classList.remove('show');
-                alert('Error processing image. Please try again.');
+                updateProgress(0);
+                
+                // More specific error messages
+                let errorMessage = 'Error processing image. ';
+                if (error.message.includes('network')) {
+                    errorMessage += 'Please check your internet connection.';
+                } else if (error.message.includes('image')) {
+                    errorMessage += 'Please try with a different image format (JPG, PNG).';
+                } else {
+                    errorMessage += 'Please try again with a clearer image.';
+                }
+                
+                alert(errorMessage);
             }
         }
 
@@ -488,6 +559,7 @@
             
             // Clean up the text
             const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+            const allText = text.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
             
             // Initialize extracted data
             let extractedData = {
@@ -498,43 +570,100 @@
                 email: ''
             };
 
-            // Email pattern
-            const emailPattern = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g;
-            const emailMatch = text.match(emailPattern);
-            if (emailMatch) {
-                extractedData.email = emailMatch[0];
+            // Email pattern - more comprehensive
+            const emailPattern = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/gi;
+            const emailMatches = allText.match(emailPattern);
+            if (emailMatches && emailMatches.length > 0) {
+                extractedData.email = emailMatches[0].toLowerCase();
             }
 
-            // Phone pattern (various formats)
-            const phonePattern = /(?:\+?1[-.\s]?)?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})|(\+\d{1,3}[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9})/g;
-            const phoneMatch = text.match(phonePattern);
-            if (phoneMatch) {
-                extractedData.phone = phoneMatch[0].replace(/\s+/g, ' ').trim();
+            // Phone pattern - comprehensive patterns for different formats
+            const phonePatterns = [
+                /\+?1?[-.\s]?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})/g,
+                /\+\d{1,3}[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9}/g,
+                /\(?(\d{3})\)?[-.\s]?(\d{3})[-.\s]?(\d{4})/g,
+                /\d{3}[-.\s]?\d{3}[-.\s]?\d{4}/g
+            ];
+            
+            for (let pattern of phonePatterns) {
+                const phoneMatch = allText.match(pattern);
+                if (phoneMatch && phoneMatch.length > 0) {
+                    let phone = phoneMatch[0].replace(/[^\d+]/g, '');
+                    if (phone.length >= 10) {
+                        extractedData.phone = phoneMatch[0].trim();
+                        break;
+                    }
+                }
             }
 
-            // Extract name (usually the first line or line with proper case)
+            // Extract name - look for capitalized words that could be names
+            const namePatterns = [
+                /\b[A-Z][a-z]{2,}\s+[A-Z][a-z]{2,}\b/g,
+                /\b[A-Z][a-z]+\s+[A-Z]\.\s+[A-Z][a-z]+\b/g,
+                /\b[A-Z][a-z]+\s+[A-Z][a-z]+\s+[A-Z][a-z]+\b/g
+            ];
+            
+            for (let pattern of namePatterns) {
+                const nameMatches = allText.match(pattern);
+                if (nameMatches) {
+                    for (let match of nameMatches) {
+                        if (!match.includes('@') && !phonePatterns.some(p => p.test(match))) {
+                            // Check if it's not a common business term
+                            const businessTerms = ['LLC', 'INC', 'CORP', 'LTD', 'COMPANY', 'BUSINESS', 'SERVICES'];
+                            if (!businessTerms.some(term => match.toUpperCase().includes(term))) {
+                                extractedData.name = match.trim();
+                                break;
+                            }
+                        }
+                    }
+                    if (extractedData.name) break;
+                }
+            }
+
+            // Extract title - look for common job titles
+            const titleKeywords = [
+                'ceo', 'cto', 'cfo', 'coo', 'president', 'vice president', 'vp',
+                'manager', 'director', 'senior', 'junior', 'lead', 'head',
+                'founder', 'co-founder', 'owner', 'partner',
+                'developer', 'engineer', 'architect', 'designer',
+                'analyst', 'consultant', 'specialist', 'coordinator',
+                'assistant', 'executive', 'officer', 'supervisor',
+                'sales', 'marketing', 'hr', 'human resources'
+            ];
+            
             for (let line of lines) {
-                if (line.length > 2 && line.length < 50 && 
-                    /^[A-Z][a-z]+ [A-Z][a-z]+/.test(line) && 
-                    !line.includes('@') && !phonePattern.test(line)) {
-                    extractedData.name = line;
+                const lowerLine = line.toLowerCase();
+                if (titleKeywords.some(keyword => lowerLine.includes(keyword)) && 
+                    !line.includes('@') && 
+                    !phonePatterns.some(p => p.test(line)) &&
+                    line !== extractedData.name) {
+                    extractedData.title = line.trim();
                     break;
                 }
             }
 
-            // Extract company and title (heuristic approach)
-            const commonTitles = ['ceo', 'cto', 'manager', 'director', 'president', 'founder', 'developer', 'engineer', 'analyst', 'consultant', 'specialist', 'coordinator', 'assistant', 'executive', 'officer', 'lead', 'senior', 'junior', 'head'];
-            
+            // Extract company - heuristic approach
             for (let line of lines) {
-                const lowerLine = line.toLowerCase();
-                if (commonTitles.some(title => lowerLine.includes(title)) && !extractedData.title) {
-                    extractedData.title = line;
-                } else if (line.length > 3 && line.length < 50 && 
-                          !line.includes('@') && !phonePattern.test(line) && 
-                          line !== extractedData.name && line !== extractedData.title && 
-                          !extractedData.company) {
-                    // Likely company name
-                    extractedData.company = line;
+                if (line.length > 2 && line.length < 100 && 
+                    !line.includes('@') && 
+                    !phonePatterns.some(p => p.test(line)) &&
+                    line !== extractedData.name && 
+                    line !== extractedData.title &&
+                    !titleKeywords.some(keyword => line.toLowerCase().includes(keyword))) {
+                    
+                    // Check if it contains business indicators
+                    const businessIndicators = ['corp', 'inc', 'llc', 'ltd', 'company', 'co.', 'group', 'solutions', 'services', 'consulting'];
+                    const hasBusinessIndicator = businessIndicators.some(indicator => 
+                        line.toLowerCase().includes(indicator)
+                    );
+                    
+                    // Or if it's in all caps (common for company names)
+                    const isAllCaps = line === line.toUpperCase() && line.length > 2;
+                    
+                    if (hasBusinessIndicator || isAllCaps || (!extractedData.company && line.length > 3)) {
+                        extractedData.company = line.trim();
+                        break;
+                    }
                 }
             }
 
@@ -546,6 +675,9 @@
             document.getElementById('emailField').value = extractedData.email;
 
             currentCardData = extractedData;
+            
+            // Log the extracted data for debugging
+            console.log('Extracted data:', extractedData);
         }
 
         function saveCard() {
