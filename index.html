@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link  href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
+
     <title>Advanced Business Card Reader</title>
     <style>
         * {
@@ -187,10 +190,46 @@
 
         .crop-overlay {
             position: absolute;
-            border: 2px dashed #4facfe;
-            background: rgba(79, 172, 254, 0.1);
-            pointer-events: none;
+            border: 2px solid #4facfe;
+            background: rgba(79, 172, 254, 0.2);
+            cursor: crosshair;
             display: none;
+        }
+
+        .custom-crop-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .aspect-ratio-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .aspect-ratio-btn {
+            padding: 8px 12px;
+            border: 1px solid #4facfe;
+            background: white;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+        }
+
+        .aspect-ratio-btn.active {
+            background: #4facfe;
+            color: white;
+        }
+
+        .aspect-ratio-btn:hover {
+            background: #4facfe;
+            color: white;
         }
 
         .manual-entry-form {
@@ -392,6 +431,7 @@
             <!-- Mode Tabs -->
             <div class="mode-tabs">
                 <button class="mode-tab active" onclick="switchTab('scan')">📷 Scan & Extract</button>
+                <button class="mode-tab" onclick="switchTab('qr')">📱 QR Reader</button>
                 <button class="mode-tab" onclick="switchTab('manual')">✏️ Manual Entry</button>
                 <button class="mode-tab" onclick="switchTab('manage')">📋 Manage Cards</button>
             </div>
@@ -425,20 +465,32 @@
                 </div>
 
                 <!-- Image Editor -->
+                 
                 <div id="imageEditor" class="image-editor" style="display: none;">
                     <h3>🎨 Image Editor & Cropper</h3>
+                    
+                    <!-- Aspect Ratio Controls -->
+                    <div class="aspect-ratio-controls" id="aspectRatioControls" style="display: none;">
+                        <button class="aspect-ratio-btn" onclick="setCropperAspectRatio(NaN)">Free Form</button>
+                        <button class="aspect-ratio-btn active" onclick="setCropperAspectRatio(1)">1:1 Square</button>
+                        <button class="aspect-ratio-btn" onclick="setCropperAspectRatio(4/3)">4:3 Standard</button>
+                        <button class="aspect-ratio-btn" onclick="setCropperAspectRatio(16/9)">16:9 Widescreen</button>
+                        <button class="aspect-ratio-btn" onclick="setCropperAspectRatio(3/4)">3:4 Portrait</button>
+                    </div>
+                    
                     <div class="editor-toolbar">
                         <button class="btn btn-info" onclick="resetImage()">🔄 Reset</button>
                         <button class="btn btn-warning" onclick="rotateImage()">🔄 Rotate 90°</button>
-                        <button class="btn btn-secondary" onclick="toggleCropMode()">✂️ Crop Mode</button>
+                        <button class="btn btn-secondary" onclick="startCropMode()">✂️ Crop</button>
                         <button class="btn btn-success" onclick="applyCrop()" id="applyCropBtn" style="display: none;">✅ Apply Crop</button>
+                        <button class="btn btn-warning" onclick="cancelCrop()" id="cancelCropBtn" style="display: none;">❌ Cancel</button>
                         <button class="btn btn-primary" onclick="enhanceImage()">✨ Enhance</button>
                         <button class="btn btn-success" onclick="extractFromImage()">🤖 Extract Text</button>
                     </div>
                     
                     <div class="canvas-container">
+                        <img id="cropperImage" style="max-width: 100%; display: none;">
                         <canvas id="imageCanvas"></canvas>
-                        <div id="cropOverlay" class="crop-overlay"></div>
                     </div>
 
                     <div id="extractionResult" class="extraction-result" style="display: none;">
@@ -446,6 +498,59 @@
                         <div class="form-grid" id="extractedFields"></div>
                         <button class="btn btn-primary" onclick="saveExtractedCard()">💾 Save Card</button>
                     </div>
+                </div>
+            </div>
+
+            <!-- QR Reader Tab -->
+            <div id="qrTab" class="tab-content">
+                <div class="upload-section">
+                    <h2>📱 QR Code Scanner</h2>
+                    <p style="margin-bottom: 20px; color: rgba(255,255,255,0.9);">Scan QR codes to extract contact information</p>
+                    
+                    <div class="upload-area" id="qrUploadArea">
+                        <div style="font-size: 3rem; margin-bottom: 15px;">📱</div>
+                        <p>Upload QR code image or take photo</p>
+                        <p style="opacity: 0.8; font-size: 0.9rem;">QR codes should contain contact information (vCard, etc.)</p>
+                    </div>
+                    
+                    <div class="buttons-container">
+                        <button class="btn btn-primary" onclick="document.getElementById('qrFileInput').click()">
+                            📁 Upload QR Image
+                        </button>
+                        <button class="btn btn-secondary" onclick="document.getElementById('qrCameraInput').click()">
+                            📷 Take Photo
+                        </button>
+                        <button class="btn btn-info" onclick="startQRScanner()">
+                            🎥 Live Scanner
+                        </button>
+                    </div>
+
+                    <div class="loading" id="qrLoading">
+                        <h3>🔍 Processing QR Code...</h3>
+                        <p id="qrLoadingText">Please wait...</p>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="qrProgressFill"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- QR Scanner Video -->
+                <div id="qrScannerContainer" class="image-editor" style="display: none;">
+                    <h3>🎥 Live QR Scanner</h3>
+                    <div style="text-align: center; margin-bottom: 20px;">
+                        <video id="qrVideo" width="400" height="300" style="border: 2px solid #4facfe; border-radius: 10px;"></video>
+                    </div>
+                    <div class="buttons-container">
+                        <button class="btn btn-warning" onclick="stopQRScanner()">⏹️ Stop Scanner</button>
+                        <button class="btn btn-success" onclick="captureQRFrame()">📸 Capture Frame</button>
+                    </div>
+                </div>
+
+                <!-- QR Result -->
+                <div id="qrResult" class="extraction-result" style="display: none;">
+                    <h4>📱 QR Code Information</h4>
+                    <div class="form-grid" id="qrExtractedFields"></div>
+                    <button class="btn btn-primary" onclick="saveQRCard()">💾 Save Contact</button>
                 </div>
             </div>
 
@@ -502,9 +607,17 @@
                 <div class="cards-list">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                         <h2>📋 Saved Business Cards</h2>
-                        <button class="btn btn-primary" onclick="exportToCSV()" id="exportBtn" disabled>
-                            💾 Export to CSV
-                        </button>
+                        <div style="display: flex; gap: 10px;">
+                            <button class="btn btn-info" onclick="testStorage()" style="font-size: 0.8rem;">
+                                🔍 Debug
+                            </button>
+                            <button class="btn btn-warning" onclick="clearAllCards()" id="clearBtn" disabled>
+                                🗑️ Clear All
+                            </button>
+                            <button class="btn btn-primary" onclick="exportToCSV()" id="exportBtn" disabled>
+                                💾 Export to CSV
+                            </button>
+                        </div>
                     </div>
                     
                     <div style="overflow-x: auto;">
@@ -582,7 +695,9 @@
     </div>
 
     <input type="file" id="fileInput" accept="image/*">
-    <input type="file" id="cameraInput" accept="image/*" capture="camera">
+     <input type="file" id="cameraInput" accept="image/*" capture="camera">
+    <input type="file" id="qrFileInput" accept="image/*">
+    <input type="file" id="qrCameraInput" accept="image/*" capture="camera">
 
     <script>
         let savedCards = [];
@@ -592,21 +707,33 @@
         let originalImageData = null;
         let currentImageData = null;
         let cropMode = false;
-        let cropStart = null;
-        let cropEnd = null;
+        let cropper = null;
+        
+        // QR Scanner variables
+        let qrStream = null;
+        let qrVideo = null;
+        let qrCanvas = null;
+        let qrCtx = null;
+        let qrScanning = false;
 
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
             canvas = document.getElementById('imageCanvas');
             ctx = canvas.getContext('2d');
             setupEventListeners();
+            loadSavedCards();
             updateCardsTable();
+            
+            // Debug: Check if cards were loaded
+            console.log('Initialization complete. Cards loaded:', savedCards.length);
         });
 
         function setupEventListeners() {
             // File inputs
             document.getElementById('fileInput').addEventListener('change', handleFileSelect);
             document.getElementById('cameraInput').addEventListener('change', handleFileSelect);
+            document.getElementById('qrFileInput').addEventListener('change', handleQRFileSelect);
+            document.getElementById('qrCameraInput').addEventListener('change', handleQRFileSelect);
 
             // Drag and drop
             const uploadArea = document.getElementById('uploadArea');
@@ -624,10 +751,23 @@
                 if (files.length > 0) processImage(files[0]);
             });
 
-            // Canvas events for cropping
-            canvas.addEventListener('mousedown', startCrop);
-            canvas.addEventListener('mousemove', updateCrop);
-            canvas.addEventListener('mouseup', endCrop);
+            // QR drag and drop
+            const qrUploadArea = document.getElementById('qrUploadArea');
+            qrUploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                qrUploadArea.classList.add('drag-over');
+            });
+            qrUploadArea.addEventListener('dragleave', () => {
+                qrUploadArea.classList.remove('drag-over');
+            });
+            qrUploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                qrUploadArea.classList.remove('drag-over');
+                const files = e.dataTransfer.files;
+                if (files.length > 0) processQRImage(files[0]);
+            });
+
+
         }
 
         function switchTab(tabName) {
@@ -693,7 +833,8 @@
             if (originalImageData) {
                 ctx.putImageData(originalImageData, 0, 0);
                 currentImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                hideCropOverlay();
+                cancelCrop();
+                document.getElementById('aspectRatioControls').style.display = 'none';
             }
         }
 
@@ -717,85 +858,169 @@
             currentImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         }
 
-        function toggleCropMode() {
-            cropMode = !cropMode;
-            const btn = document.querySelector('[onclick="toggleCropMode()"]');
-            if (cropMode) {
-                btn.textContent = '❌ Cancel Crop';
-                btn.className = 'btn btn-warning';
-                canvas.style.cursor = 'crosshair';
-            } else {
-                btn.textContent = '✂️ Crop Mode';
-                btn.className = 'btn btn-secondary';
-                canvas.style.cursor = 'default';
-                hideCropOverlay();
+        function startCropMode() {
+            cropMode = true;
+            const btn = document.querySelector('[onclick="startCropMode()"]');
+            btn.textContent = '❌ Cancel Crop';
+            btn.className = 'btn btn-warning';
+            
+            // Show aspect ratio controls
+            document.getElementById('aspectRatioControls').style.display = 'flex';
+            document.getElementById('applyCropBtn').style.display = 'inline-block';
+            document.getElementById('cancelCropBtn').style.display = 'inline-block';
+            
+            // Initialize Cropper.js
+            initializeCropper();
+        }
+
+        function initializeCropper() {
+            const cropperImage = document.getElementById('cropperImage');
+            const imageCanvas = document.getElementById('imageCanvas');
+            
+            // Convert canvas to image for cropper
+            const dataURL = imageCanvas.toDataURL();
+            cropperImage.src = dataURL;
+            cropperImage.style.display = 'block';
+            imageCanvas.style.display = 'none';
+            
+            // Destroy existing cropper if any
+            if (cropper) {
+                cropper.destroy();
+            }
+            
+            // Initialize new cropper
+            cropper = new Cropper(cropperImage, {
+                viewMode: 1,
+                dragMode: 'move',
+                autoCropArea: 1,
+                responsive: true,
+                background: false,
+                movable: true,
+                zoomable: true,
+                rotatable: false,
+                scalable: false,
+                aspectRatio: 1 // Default to 1:1
+            });
+        }
+
+                function setCropperAspectRatio(ratio) {
+            // Clear active states
+            document.querySelectorAll('.aspect-ratio-btn').forEach(btn => btn.classList.remove('active'));
+            
+            // Highlight the clicked button
+            event.target.classList.add('active');
+            
+            // Update cropper aspect ratio if cropper exists
+            if (cropper) {
+                cropper.setAspectRatio(ratio);
             }
         }
 
-        function startCrop(e) {
-            if (!cropMode) return;
+        function adjustCropToAspectRatio() {
+            // if (aspectRatio === 0) return; // Free form
+            
             const rect = canvas.getBoundingClientRect();
-            cropStart = {
-                x: e.clientX - rect.left,
-                y: e.clientY - rect.top
-            };
-        }
-
-        function updateCrop(e) {
-            if (!cropMode || !cropStart) return;
-            const rect = canvas.getBoundingClientRect();
-            cropEnd = {
-                x: e.clientX - rect.left,
-                y: e.clientY - rect.top
-            };
+            const currentWidth = Math.abs(cropEnd.x - cropStart.x);
+            const currentHeight = Math.abs(cropEnd.y - cropStart.y);
+            const centerX = (cropStart.x + cropEnd.x) / 2;
+            const centerY = (cropStart.y + cropEnd.y) / 2;
+            
+            let newWidth, newHeight;
+            
+            if (aspectRatio > 0) {
+                // Fixed aspect ratio
+                if (currentWidth / currentHeight > aspectRatio) {
+                    // Too wide, adjust height
+                    newWidth = currentWidth;
+                    newHeight = currentWidth / aspectRatio;
+                } else {
+                    // Too tall, adjust width
+                    newHeight = currentHeight;
+                    newWidth = currentHeight * aspectRatio;
+                }
+            } else {
+                // Use original image aspect ratio
+                if (currentWidth / currentHeight > originalImageAspectRatio) {
+                    newWidth = currentWidth;
+                    newHeight = currentWidth / originalImageAspectRatio;
+                } else {
+                    newHeight = currentHeight;
+                    newWidth = currentHeight * originalImageAspectRatio;
+                }
+            }
+            
+            // Ensure crop area stays within canvas bounds
+            const halfWidth = newWidth / 2;
+            const halfHeight = newHeight / 2;
+            
+            let newCenterX = centerX;
+            let newCenterY = centerY;
+            
+            if (centerX - halfWidth < 0) newCenterX = halfWidth;
+            if (centerX + halfWidth > rect.width) newCenterX = rect.width - halfWidth;
+            if (centerY - halfHeight < 0) newCenterY = halfHeight;
+            if (centerY + halfHeight > rect.height) newCenterY = rect.height - halfHeight;
+            
+            cropStart = { x: newCenterX - halfWidth, y: newCenterY - halfHeight };
+            cropEnd = { x: newCenterX + halfWidth, y: newCenterY + halfHeight };
+            
             showCropOverlay();
         }
 
-        function endCrop(e) {
-            if (!cropMode || !cropStart) return;
-            document.getElementById('applyCropBtn').style.display = 'inline-block';
-        }
-
-        function showCropOverlay() {
-            if (!cropStart || !cropEnd) return;
-            const overlay = document.getElementById('cropOverlay');
-            const rect = canvas.getBoundingClientRect();
+        function cancelCrop() {
+            cropMode = false;
+            const btn = document.querySelector('[onclick="startCropMode()"]');
+            btn.textContent = '✂️ Crop';
+            btn.className = 'btn btn-secondary';
             
-            const left = Math.min(cropStart.x, cropEnd.x);
-            const top = Math.min(cropStart.y, cropEnd.y);
-            const width = Math.abs(cropEnd.x - cropStart.x);
-            const height = Math.abs(cropEnd.y - cropStart.y);
+            // Destroy cropper
+            if (cropper) {
+                cropper.destroy();
+                cropper = null;
+            }
             
-            overlay.style.left = (rect.left + left) + 'px';
-            overlay.style.top = (rect.top + top) + 'px';
-            overlay.style.width = width + 'px';
-            overlay.style.height = height + 'px';
-            overlay.style.display = 'block';
-        }
-
-        function hideCropOverlay() {
-            document.getElementById('cropOverlay').style.display = 'none';
+            // Show canvas again
+            const cropperImage = document.getElementById('cropperImage');
+            const imageCanvas = document.getElementById('imageCanvas');
+            cropperImage.style.display = 'none';
+            imageCanvas.style.display = 'block';
+            
             document.getElementById('applyCropBtn').style.display = 'none';
-            cropStart = null;
-            cropEnd = null;
+            document.getElementById('cancelCropBtn').style.display = 'none';
+            document.getElementById('aspectRatioControls').style.display = 'none';
         }
+
+
+
+
 
         function applyCrop() {
-            if (!cropStart || !cropEnd) return;
+            if (!cropper) {
+                alert('Please start crop mode first');
+                return;
+            }
             
-            const left = Math.min(cropStart.x, cropEnd.x);
-            const top = Math.min(cropStart.y, cropEnd.y);
-            const width = Math.abs(cropEnd.x - cropStart.x);
-            const height = Math.abs(cropEnd.y - cropStart.y);
-            
-            const croppedData = ctx.getImageData(left, top, width, height);
-            
-            canvas.width = width;
-            canvas.height = height;
-            ctx.putImageData(croppedData, 0, 0);
-            
-            currentImageData = ctx.getImageData(0, 0, width, height);
-            toggleCropMode();
+            try {
+                // Get cropped canvas from cropper
+                const croppedCanvas = cropper.getCroppedCanvas();
+                
+                // Update the main canvas with cropped image
+                canvas.width = croppedCanvas.width;
+                canvas.height = croppedCanvas.height;
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(croppedCanvas, 0, 0);
+                
+                // Update current image data
+                currentImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                
+                // Exit crop mode
+                cancelCrop();
+                
+                alert('Crop applied successfully!');
+            } catch (error) {
+                console.error('Error applying crop:', error);
+                alert('Error applying crop. Please try again.');
+            }
         }
 
         function enhanceImage() {
@@ -910,7 +1135,7 @@
 
             // Phone extraction
             const phonePatterns = [
-                /\+?1?[-.\s]?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})/g,
+                /\+?91?[-.\s]?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})/g,
                 /\+\d{1,3}[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9}/g
             ];
             
@@ -1095,9 +1320,36 @@
             document.getElementById('manualNotes').value = '';
         }
 
+        function loadSavedCards() {
+            try {
+                const saved = localStorage.getItem('businessCards');
+                if (saved) {
+                    savedCards = JSON.parse(saved);
+                    console.log(`Loaded ${savedCards.length} cards from localStorage`);
+                } else {
+                    console.log('No saved cards found in localStorage');
+                    savedCards = [];
+                }
+            } catch (error) {
+                console.error('Error loading saved cards:', error);
+                savedCards = [];
+            }
+        }
+
+        function saveCardsToStorage() {
+            try {
+                localStorage.setItem('businessCards', JSON.stringify(savedCards));
+                console.log(`Saved ${savedCards.length} cards to localStorage`);
+            } catch (error) {
+                console.error('Error saving cards to storage:', error);
+            }
+        }
+
         function updateCardsTable() {
             const tbody = document.getElementById('cardsTableBody');
             tbody.innerHTML = '';
+
+            console.log('Updating cards table with', savedCards.length, 'cards');
 
             if (savedCards.length === 0) {
                 tbody.innerHTML = `
@@ -1127,6 +1379,56 @@
             }
 
             document.getElementById('exportBtn').disabled = savedCards.length === 0;
+            document.getElementById('clearBtn').disabled = savedCards.length === 0;
+            saveCardsToStorage();
+            showStorageStatus();
+        }
+
+        function clearAllCards() {
+            if (confirm('Are you sure you want to delete ALL saved business cards? This action cannot be undone.')) {
+                savedCards = [];
+                updateCardsTable();
+                alert('All business cards have been deleted!');
+            }
+        }
+
+        function showStorageStatus() {
+            const cardCount = savedCards.length;
+            const storageUsed = JSON.stringify(savedCards).length;
+            const maxStorage = 100 * 1024 * 1024; // 100MB limit
+            const usagePercent = (storageUsed / maxStorage) * 100;
+            
+            console.log(`Storage Status: ${cardCount} cards, ${(storageUsed/1024).toFixed(1)}KB used (${usagePercent.toFixed(1)}% of 5MB)`);
+            
+            if (usagePercent > 80) {
+                alert('Warning: Storage is getting full. Consider exporting and clearing some cards.');
+            }
+        }
+
+        function testStorage() {
+            console.log('=== STORAGE DEBUG ===');
+            console.log('Current savedCards array:', savedCards);
+            console.log('localStorage content:', localStorage.getItem('businessCards'));
+            console.log('localStorage available:', typeof localStorage !== 'undefined');
+            
+            // Test saving
+            const testCard = {
+                id: Date.now(),
+                name: 'Test Card',
+                company: 'Test Company',
+                title: 'Test Title',
+                phone: '123-456-7890',
+                email: 'test@example.com',
+                website: 'https://test.com',
+                address: 'Test Address',
+                notes: 'Test Notes'
+            };
+            
+            savedCards.push(testCard);
+            saveCardsToStorage();
+            updateCardsTable();
+            
+            alert('Test card added. Check console for debug info.');
         }
 
         function editCard(id) {
@@ -1251,8 +1553,343 @@
             }
         }
 
+        // QR Code Processing Functions
+        function handleQRFileSelect(event) {
+            const file = event.target.files[0];
+            if (file) processQRImage(file);
+        }
+
+        function processQRImage(file) {
+            if (!file.type.startsWith('image/')) {
+                alert('Please select an image file');
+                return;
+            }
+
+            if (file.size > 10 * 1024 * 1024) {
+                alert('Image too large. Please select an image smaller than 10MB.');
+                return;
+            }
+
+            showQRLoading('Processing QR code...');
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                decodeQRCode(e.target.result);
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function decodeQRCode(imageUrl) {
+            updateQRProgress(20);
+            updateQRLoadingText('Loading QR decoder...');
+            
+            // Try to load jsQR library
+            if (typeof jsQR === 'undefined') {
+                loadJSQR().then(() => {
+                    updateQRProgress(40);
+                    updateQRLoadingText('Decoding QR code...');
+                    performQRDecode(imageUrl);
+                }).catch(error => {
+                    console.error('Failed to load QR decoder:', error);
+                    hideQRLoading();
+                    alert('QR decoder failed to load. Please try manual entry.');
+                });
+            } else {
+                updateQRProgress(40);
+                updateQRLoadingText('Decoding QR code...');
+                performQRDecode(imageUrl);
+            }
+        }
+
+        function loadJSQR() {
+            return new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    reject(new Error('JSQR loading timeout'));
+                }, 10000);
+                
+                const script = document.createElement('script');
+                script.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js';
+                script.onload = () => {
+                    clearTimeout(timeout);
+                    resolve();
+                };
+                script.onerror = () => {
+                    clearTimeout(timeout);
+                    reject(new Error('Failed to load JSQR'));
+                };
+                document.head.appendChild(script);
+            });
+        }
+
+        function performQRDecode(imageUrl) {
+            const img = new Image();
+            img.onload = function() {
+                updateQRProgress(60);
+                updateQRLoadingText('Analyzing QR data...');
+                
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                canvas.width = img.width;
+                canvas.height = img.height;
+                ctx.drawImage(img, 0, 0);
+                
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const code = jsQR(imageData.data, imageData.width, imageData.height);
+                
+                updateQRProgress(100);
+                hideQRLoading();
+                
+                if (code) {
+                    const parsedData = parseQRData(code.data);
+                    displayQRResult(parsedData);
+                } else {
+                    alert('No QR code found in image. Please try a different image.');
+                }
+            };
+            img.src = imageUrl;
+        }
+
+        function parseQRData(qrText) {
+            let parsedData = {
+                name: '',
+                company: '',
+                title: '',
+                phone: '',
+                email: '',
+                website: '',
+                address: ''
+            };
+
+            // Check if it's a vCard format
+            if (qrText.includes('BEGIN:VCARD')) {
+                const lines = qrText.split('\n');
+                for (let line of lines) {
+                    if (line.startsWith('FN:')) {
+                        parsedData.name = line.substring(3).trim();
+                    } else if (line.startsWith('ORG:')) {
+                        parsedData.company = line.substring(4).trim();
+                    } else if (line.startsWith('TITLE:')) {
+                        parsedData.title = line.substring(6).trim();
+                    } else if (line.startsWith('TEL:')) {
+                        parsedData.phone = line.substring(4).trim();
+                    } else if (line.startsWith('EMAIL:')) {
+                        parsedData.email = line.substring(6).trim();
+                    } else if (line.startsWith('URL:')) {
+                        parsedData.website = line.substring(4).trim();
+                    } else if (line.startsWith('ADR:')) {
+                        parsedData.address = line.substring(4).trim();
+                    }
+                }
+            } else {
+                // Try to extract information from plain text
+                const allText = qrText.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+                
+                // Email extraction
+                const emailPattern = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/gi;
+                const emailMatch = allText.match(emailPattern);
+                if (emailMatch) parsedData.email = emailMatch[0].toLowerCase();
+
+                // Phone extraction
+                const phonePatterns = [
+                    /\+?91?[-.\s]?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})/g,
+                    /\+\d{1,3}[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9}/g
+                ];
+                
+                for (let pattern of phonePatterns) {
+                    const phoneMatch = allText.match(pattern);
+                    if (phoneMatch && phoneMatch[0].replace(/[^\d]/g, '').length >= 10) {
+                        parsedData.phone = phoneMatch[0].trim();
+                        break;
+                    }
+                }
+
+                // Website extraction
+                const websitePattern = /(?:https?:\/\/)?(?:www\.)?[a-zA-Z0-9][-a-zA-Z0-9]{0,62}(?:\.[a-zA-Z0-9][-a-zA-Z0-9]{0,62})*\.(?:[a-zA-Z]{2,6})/gi;
+                const websiteMatch = allText.match(websitePattern);
+                if (websiteMatch) {
+                    const website = websiteMatch[0];
+                    if (!website.includes('@')) {
+                        parsedData.website = website.startsWith('http') ? website : 'https://' + website;
+                    }
+                }
+
+                // Name extraction (first line or prominent text)
+                const lines = qrText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+                if (lines.length > 0) {
+                    const firstLine = lines[0];
+                    if (!firstLine.includes('@') && !phonePatterns.some(p => p.test(firstLine))) {
+                        parsedData.name = firstLine;
+                    }
+                }
+            }
+
+            return parsedData;
+        }
+
+        function displayQRResult(data) {
+            const resultDiv = document.getElementById('qrResult');
+            const fieldsDiv = document.getElementById('qrExtractedFields');
+            
+            fieldsDiv.innerHTML = `
+                <div class="data-field">
+                    <label>👤 Name</label>
+                    <input type="text" id="qrExtractedName" value="${data.name}">
+                </div>
+                <div class="data-field">
+                    <label>🏢 Company</label>
+                    <input type="text" id="qrExtractedCompany" value="${data.company}">
+                </div>
+                <div class="data-field">
+                    <label>💼 Title</label>
+                    <input type="text" id="qrExtractedTitle" value="${data.title}">
+                </div>
+                <div class="data-field">
+                    <label>📞 Phone</label>
+                    <input type="text" id="qrExtractedPhone" value="${data.phone}">
+                </div>
+                <div class="data-field">
+                    <label>📧 Email</label>
+                    <input type="email" id="qrExtractedEmail" value="${data.email}">
+                </div>
+                <div class="data-field">
+                    <label>🌐 Website</label>
+                    <input type="url" id="qrExtractedWebsite" value="${data.website}">
+                </div>
+                <div class="data-field">
+                    <label>📍 Address</label>
+                    <input type="text" id="qrExtractedAddress" value="${data.address}">
+                </div>
+            `;
+            
+            resultDiv.style.display = 'block';
+        }
+
+        function saveQRCard() {
+            const cardData = {
+                id: Date.now(),
+                name: document.getElementById('qrExtractedName').value,
+                company: document.getElementById('qrExtractedCompany').value,
+                title: document.getElementById('qrExtractedTitle').value,
+                phone: document.getElementById('qrExtractedPhone').value,
+                email: document.getElementById('qrExtractedEmail').value,
+                website: document.getElementById('qrExtractedWebsite').value,
+                address: document.getElementById('qrExtractedAddress').value,
+                notes: 'Extracted from QR code'
+            };
+
+            if (!cardData.name && !cardData.company && !cardData.phone && !cardData.email) {
+                alert('Please fill in at least one field before saving.');
+                return;
+            }
+
+            savedCards.push(cardData);
+            updateCardsTable();
+            
+            // Reset QR result
+            document.getElementById('qrResult').style.display = 'none';
+            
+            // Switch to manage tab
+            switchTab('manage');
+            
+            alert('Contact saved successfully!');
+        }
+
+        // Live QR Scanner Functions
+        function startQRScanner() {
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+                    .then(function(stream) {
+                        qrStream = stream;
+                        qrVideo = document.getElementById('qrVideo');
+                        qrVideo.srcObject = stream;
+                        qrVideo.play();
+                        
+                        qrCanvas = document.createElement('canvas');
+                        qrCtx = qrCanvas.getContext('2d');
+                        
+                        document.getElementById('qrScannerContainer').style.display = 'block';
+                        qrScanning = true;
+                        scanQRFrame();
+                    })
+                    .catch(function(error) {
+                        console.error('Camera access denied:', error);
+                        alert('Camera access denied. Please use file upload instead.');
+                    });
+            } else {
+                alert('Camera not available. Please use file upload instead.');
+            }
+        }
+
+        function stopQRScanner() {
+            if (qrStream) {
+                qrStream.getTracks().forEach(track => track.stop());
+                qrStream = null;
+            }
+            qrScanning = false;
+            document.getElementById('qrScannerContainer').style.display = 'none';
+        }
+
+        function scanQRFrame() {
+            if (!qrScanning || !qrVideo || !qrCanvas) return;
+            
+            qrCanvas.width = qrVideo.videoWidth;
+            qrCanvas.height = qrVideo.videoHeight;
+            qrCtx.drawImage(qrVideo, 0, 0);
+            
+            const imageData = qrCtx.getImageData(0, 0, qrCanvas.width, qrCanvas.height);
+            
+            if (typeof jsQR !== 'undefined') {
+                const code = jsQR(imageData.data, imageData.width, imageData.height);
+                if (code) {
+                    const parsedData = parseQRData(code.data);
+                    displayQRResult(parsedData);
+                    stopQRScanner();
+                    return;
+                }
+            }
+            
+            requestAnimationFrame(scanQRFrame);
+        }
+
+        function captureQRFrame() {
+            if (!qrVideo || !qrCanvas) return;
+            
+            qrCanvas.width = qrVideo.videoWidth;
+            qrCanvas.height = qrVideo.videoHeight;
+            qrCtx.drawImage(qrVideo, 0, 0);
+            
+            qrCanvas.toBlob(function(blob) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    decodeQRCode(e.target.result);
+                };
+                reader.readAsDataURL(blob);
+            });
+        }
+
+        function showQRLoading(text) {
+            document.getElementById('qrLoading').classList.add('show');
+            updateQRLoadingText(text);
+            updateQRProgress(0);
+        }
+
+        function hideQRLoading() {
+            document.getElementById('qrLoading').classList.remove('show');
+            updateQRProgress(0);
+        }
+
+        function updateQRProgress(percent) {
+            document.getElementById('qrProgressFill').style.width = percent + '%';
+        }
+
+        function updateQRLoadingText(text) {
+            document.getElementById('qrLoadingText').textContent = text;
+        }
+        loadSavedCards();
+
         // Initialize app
         updateCardsTable();
+       
         </script>
         </body>
         </html>
