@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Business Card Reader</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/4.1.1/tesseract.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .main-content {
+            padding: 40px;
+        }
+
+        .upload-section {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            border-radius: 15px;
+            padding: 40px;
+            margin-bottom: 30px;
+            text-align: center;
+            color: white;
+        }
+
+        .upload-area {
+            border: 3px dashed rgba(255, 255, 255, 0.5);
+            border-radius: 15px;
+            padding: 40px;
+            margin: 20px 0;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .upload-area:hover {
+            border-color: rgba(255, 255, 255, 0.8);
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .upload-area.drag-over {
+            border-color: #fff;
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(1.02);
+        }
+
+        .upload-icon {
+            font-size: 3rem;
+            margin-bottom: 15px;
+            opacity: 0.8;
+        }
+
+        .buttons-container {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-top: 20px;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .preview-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-top: 30px;
+        }
+
+        .preview-card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            border: 1px solid #e1e5e9;
+        }
+
+        .preview-card h3 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.3rem;
+            border-bottom: 2px solid #4facfe;
+            padding-bottom: 10px;
+        }
+
+        .card-image {
+            max-width: 100%;
+            height: auto;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .extracted-data {
+            display: grid;
+            gap: 15px;
+        }
+
+        .data-field {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 4px solid #4facfe;
+        }
+
+        .data-field label {
+            display: block;
+            font-weight: 600;
+            color: #555;
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .data-field input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 1rem;
+            transition: border-color 0.3s ease;
+        }
+
+        .data-field input:focus {
+            outline: none;
+            border-color: #4facfe;
+            box-shadow: 0 0 0 3px rgba(79, 172, 254, 0.1);
+        }
+
+        .cards-list {
+            margin-top: 30px;
+        }
+
+        .cards-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        }
+
+        .cards-table th,
+        .cards-table td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid #e1e5e9;
+        }
+
+        .cards-table th {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .cards-table tr:hover {
+            background: #f8f9fa;
+        }
+
+        .delete-btn {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.8rem;
+        }
+
+        .delete-btn:hover {
+            background: #c82333;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+            color: #667eea;
+        }
+
+        .loading.show {
+            display: block;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 4px;
+            margin-top: 15px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: white;
+            width: 0%;
+            transition: width 0.3s ease;
+            border-radius: 4px;
+        }
+
+        #fileInput, #cameraInput {
+            display: none;
+        }
+
+        @media (max-width: 768px) {
+            .preview-section {
+                grid-template-columns: 1fr;
+            }
+            
+            .buttons-container {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .btn {
+                width: 200px;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .main-content {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📇 Business Card Reader</h1>
+            <p>Extract contact information from business cards instantly using AI-powered OCR</p>
+        </div>
+
+        <div class="main-content">
+            <div class="upload-section">
+                <h2>Upload or Capture Business Card</h2>
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-icon">📷</div>
+                    <p>Drag & drop your business card image here</p>
+                    <p style="opacity: 0.8; font-size: 0.9rem;">or use the buttons below</p>
+                </div>
+                
+                <div class="buttons-container">
+                    <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">
+                        📁 Upload Image
+                    </button>
+                    <button class="btn btn-secondary" onclick="document.getElementById('cameraInput').click()">
+                        📷 Take Photo
+                    </button>
+                    <button class="btn btn-primary" onclick="exportToCSV()" id="exportBtn" disabled>
+                        💾 Export to CSV
+                    </button>
+                </div>
+
+                <div class="loading" id="loading">
+                    <h3>🔍 Analyzing business card...</h3>
+                    <p>Extracting text and information</p>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="preview-section" id="previewSection" style="display: none;">
+                <div class="preview-card">
+                    <h3>📸 Card Preview</h3>
+                    <img id="cardPreview" class="card-image" alt="Business card preview">
+                </div>
+                
+                <div class="preview-card">
+                    <h3>📝 Extracted Information</h3>
+                    <div class="extracted-data">
+                        <div class="data-field">
+                            <label>👤 Name</label>
+                            <input type="text" id="nameField" placeholder="Full name">
+                        </div>
+                        <div class="data-field">
+                            <label>🏢 Company</label>
+                            <input type="text" id="companyField" placeholder="Company name">
+                        </div>
+                        <div class="data-field">
+                            <label>💼 Title</label>
+                            <input type="text" id="titleField" placeholder="Job title">
+                        </div>
+                        <div class="data-field">
+                            <label>📞 Phone</label>
+                            <input type="text" id="phoneField" placeholder="Phone number">
+                        </div>
+                        <div class="data-field">
+                            <label>📧 Email</label>
+                            <input type="email" id="emailField" placeholder="Email address">
+                        </div>
+                        <button class="btn btn-primary" onclick="saveCard()" style="margin-top: 15px;">
+                            💾 Save Card
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="cards-list" id="cardsList" style="display: none;">
+                <h3>📋 Saved Business Cards</h3>
+                <table class="cards-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Company</th>
+                            <th>Title</th>
+                            <th>Phone</th>
+                            <th>Email</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="cardsTableBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <input type="file" id="fileInput" accept="image/*">
+    <input type="file" id="cameraInput" accept="image/*" capture="camera">
+
+    <script>
+        let savedCards = [];
+        let currentCardData = {};
+
+        // File input handlers
+        document.getElementById('fileInput').addEventListener('change', handleFileSelect);
+        document.getElementById('cameraInput').addEventListener('change', handleFileSelect);
+
+        // Drag and drop handlers
+        const uploadArea = document.getElementById('uploadArea');
+        
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('drag-over');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('drag-over');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('drag-over');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                processImage(files[0]);
+            }
+        });
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (file) {
+                processImage(file);
+            }
+        }
+
+        function processImage(file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const imageUrl = e.target.result;
+                document.getElementById('cardPreview').src = imageUrl;
+                document.getElementById('previewSection').style.display = 'grid';
+                
+                // Show loading state
+                document.getElementById('loading').classList.add('show');
+                updateProgress(10);
+                
+                // Process with Tesseract
+                recognizeText(imageUrl);
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function updateProgress(percent) {
+            document.getElementById('progressFill').style.width = percent + '%';
+        }
+
+        async function recognizeText(imageUrl) {
+            try {
+                updateProgress(30);
+                
+                const worker = await Tesseract.createWorker('eng');
+                
+                updateProgress(50);
+                
+                const { data: { text } } = await worker.recognize(imageUrl);
+                
+                updateProgress(80);
+                
+                await worker.terminate();
+                
+                updateProgress(100);
+                
+                // Hide loading
+                setTimeout(() => {
+                    document.getElementById('loading').classList.remove('show');
+                    updateProgress(0);
+                }, 500);
+                
+                // Extract information from text
+                extractInformation(text);
+                
+            } catch (error) {
+                console.error('OCR Error:', error);
+                document.getElementById('loading').classList.remove('show');
+                alert('Error processing image. Please try again.');
+            }
+        }
+
+        function extractInformation(text) {
+            console.log('Extracted text:', text);
+            
+            // Clean up the text
+            const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+            
+            // Initialize extracted data
+            let extractedData = {
+                name: '',
+                company: '',
+                title: '',
+                phone: '',
+                email: ''
+            };
+
+            // Email pattern
+            const emailPattern = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g;
+            const emailMatch = text.match(emailPattern);
+            if (emailMatch) {
+                extractedData.email = emailMatch[0];
+            }
+
+            // Phone pattern (various formats)
+            const phonePattern = /(?:\+?1[-.\s]?)?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})|(\+\d{1,3}[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9})/g;
+            const phoneMatch = text.match(phonePattern);
+            if (phoneMatch) {
+                extractedData.phone = phoneMatch[0].replace(/\s+/g, ' ').trim();
+            }
+
+            // Extract name (usually the first line or line with proper case)
+            for (let line of lines) {
+                if (line.length > 2 && line.length < 50 && 
+                    /^[A-Z][a-z]+ [A-Z][a-z]+/.test(line) && 
+                    !line.includes('@') && !phonePattern.test(line)) {
+                    extractedData.name = line;
+                    break;
+                }
+            }
+
+            // Extract company and title (heuristic approach)
+            const commonTitles = ['ceo', 'cto', 'manager', 'director', 'president', 'founder', 'developer', 'engineer', 'analyst', 'consultant', 'specialist', 'coordinator', 'assistant', 'executive', 'officer', 'lead', 'senior', 'junior', 'head'];
+            
+            for (let line of lines) {
+                const lowerLine = line.toLowerCase();
+                if (commonTitles.some(title => lowerLine.includes(title)) && !extractedData.title) {
+                    extractedData.title = line;
+                } else if (line.length > 3 && line.length < 50 && 
+                          !line.includes('@') && !phonePattern.test(line) && 
+                          line !== extractedData.name && line !== extractedData.title && 
+                          !extractedData.company) {
+                    // Likely company name
+                    extractedData.company = line;
+                }
+            }
+
+            // Fill in the form fields
+            document.getElementById('nameField').value = extractedData.name;
+            document.getElementById('companyField').value = extractedData.company;
+            document.getElementById('titleField').value = extractedData.title;
+            document.getElementById('phoneField').value = extractedData.phone;
+            document.getElementById('emailField').value = extractedData.email;
+
+            currentCardData = extractedData;
+        }
+
+        function saveCard() {
+            const cardData = {
+                id: Date.now(),
+                name: document.getElementById('nameField').value,
+                company: document.getElementById('companyField').value,
+                title: document.getElementById('titleField').value,
+                phone: document.getElementById('phoneField').value,
+                email: document.getElementById('emailField').value
+            };
+
+            if (!cardData.name && !cardData.company && !cardData.phone && !cardData.email) {
+                alert('Please fill in at least one field before saving.');
+                return;
+            }
+
+            savedCards.push(cardData);
+            updateCardsTable();
+            
+            // Clear the form
+            document.getElementById('nameField').value = '';
+            document.getElementById('companyField').value = '';
+            document.getElementById('titleField').value = '';
+            document.getElementById('phoneField').value = '';
+            document.getElementById('emailField').value = '';
+            
+            // Hide preview section
+            document.getElementById('previewSection').style.display = 'none';
+            
+            alert('Business card saved successfully!');
+        }
+
+        function updateCardsTable() {
+            const tbody = document.getElementById('cardsTableBody');
+            tbody.innerHTML = '';
+
+            savedCards.forEach(card => {
+                const row = tbody.insertRow();
+                row.innerHTML = `
+                    <td>${card.name || '-'}</td>
+                    <td>${card.company || '-'}</td>
+                    <td>${card.title || '-'}</td>
+                    <td>${card.phone || '-'}</td>
+                    <td>${card.email || '-'}</td>
+                    <td><button class="delete-btn" onclick="deleteCard(${card.id})">Delete</button></td>
+                `;
+            });
+
+            document.getElementById('cardsList').style.display = savedCards.length > 0 ? 'block' : 'none';
+            document.getElementById('exportBtn').disabled = savedCards.length === 0;
+        }
+
+        function deleteCard(id) {
+            if (confirm('Are you sure you want to delete this card?')) {
+                savedCards = savedCards.filter(card => card.id !== id);
+                updateCardsTable();
+            }
+        }
+
+        function exportToCSV() {
+            if (savedCards.length === 0) {
+                alert('No cards to export!');
+                return;
+            }
+
+            const headers = ['Name', 'Company', 'Title', 'Phone', 'Email'];
+            const csvContent = [
+                headers.join(','),
+                ...savedCards.map(card => [
+                    `"${card.name || ''}"`,
+                    `"${card.company || ''}"`,
+                    `"${card.title || ''}"`,
+                    `"${card.phone || ''}"`,
+                    `"${card.email || ''}"`
+                ].join(','))
+            ].join('\n');
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            
+            if (link.download !== undefined) {
+                const url = URL.createObjectURL(blob);
+                link.setAttribute('href', url);
+                link.setAttribute('download', `business_cards_${new Date().toISOString().split('T')[0]}.csv`);
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+        }
+
+        // Initialize the application
+        updateCardsTable();
+    </script>
+</body>
+</html>
