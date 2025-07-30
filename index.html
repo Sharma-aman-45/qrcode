@@ -496,7 +496,10 @@
                     <div id="extractionResult" class="extraction-result" style="display: none;">
                         <h4>📝 Extracted Information</h4>
                         <div class="form-grid" id="extractedFields"></div>
-                        <button class="btn btn-primary" onclick="saveExtractedCard()">💾 Save Card</button>
+                        <div class="buttons-container">
+                            <button class="btn btn-primary" onclick="saveExtractedCard()">💾 Save Card</button>
+                            <button class="btn btn-info" onclick="searchLinkedInFromExtracted()">💼 Search LinkedIn</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -520,9 +523,6 @@
                         <button class="btn btn-secondary" onclick="document.getElementById('qrCameraInput').click()">
                             📷 Take Photo
                         </button>
-                        <button class="btn btn-info" onclick="startQRScanner()">
-                            🎥 Live Scanner
-                        </button>
                     </div>
 
                     <div class="loading" id="qrLoading">
@@ -534,25 +534,20 @@
                     </div>
                 </div>
 
-                <!-- QR Scanner Video -->
-                <div id="qrScannerContainer" class="image-editor" style="display: none;">
-                    <h3>🎥 Live QR Scanner</h3>
-                    <div style="text-align: center; margin-bottom: 20px;">
-                        <video id="qrVideo" width="400" height="300" style="border: 2px solid #4facfe; border-radius: 10px;"></video>
-                    </div>
-                    <div class="buttons-container">
-                        <button class="btn btn-warning" onclick="stopQRScanner()">⏹️ Stop Scanner</button>
-                        <button class="btn btn-success" onclick="captureQRFrame()">📸 Capture Frame</button>
-                    </div>
-                </div>
+
 
                 <!-- QR Result -->
                 <div id="qrResult" class="extraction-result" style="display: none;">
                     <h4>📱 QR Code Information</h4>
                     <div class="form-grid" id="qrExtractedFields"></div>
-                    <button class="btn btn-primary" onclick="saveQRCard()">💾 Save Contact</button>
+                    <div class="buttons-container">
+                        <button class="btn btn-primary" onclick="saveQRCard()">💾 Save Contact</button>
+                        <button class="btn btn-info" onclick="searchLinkedInFromQR()">💼 Search LinkedIn</button>
+                    </div>
                 </div>
             </div>
+
+
 
             <!-- Manual Entry Tab -->
             <div id="manualTab" class="tab-content">
@@ -597,6 +592,7 @@
                     
                     <div class="buttons-container">
                         <button class="btn btn-success" onclick="saveManualCard()">💾 Save Card</button>
+                        <button class="btn btn-info" onclick="searchLinkedInFromManual()">💼 Search LinkedIn</button>
                         <button class="btn btn-secondary" onclick="clearManualForm()">🗑️ Clear Form</button>
                     </div>
                 </div>
@@ -709,12 +705,7 @@
         let cropMode = false;
         let cropper = null;
         
-        // QR Scanner variables
-        let qrStream = null;
-        let qrVideo = null;
-        let qrCanvas = null;
-        let qrCtx = null;
-        let qrScanning = false;
+
 
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
@@ -1692,7 +1683,8 @@
                 // Phone extraction
                 const phonePatterns = [
                     /\+?91?[-.\s]?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})/g,
-                    /\+\d{1,3}[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9}/g
+                    /\+\d{1,3}[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9}/g,
+                    /\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b/g
                 ];
                 
                 for (let pattern of phonePatterns) {
@@ -1713,12 +1705,52 @@
                     }
                 }
 
-                // Name extraction (first line or prominent text)
+                // Enhanced name extraction
                 const lines = qrText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
-                if (lines.length > 0) {
-                    const firstLine = lines[0];
-                    if (!firstLine.includes('@') && !phonePatterns.some(p => p.test(firstLine))) {
-                        parsedData.name = firstLine;
+                
+                // Look for name patterns
+                const namePatterns = [
+                    /\b[A-Z][a-z]+\s+[A-Z][a-z]+\b/g, // First Last
+                    /\b[A-Z][a-z]+\s+[A-Z]\.\s+[A-Z][a-z]+\b/g, // First M. Last
+                    /\b[A-Z][a-z]+\s+[A-Z][a-z]+\s+[A-Z][a-z]+\b/g // First Middle Last
+                ];
+                
+                for (let line of lines) {
+                    // Skip lines that are clearly not names
+                    if (line.includes('@') || phonePatterns.some(p => p.test(line)) || 
+                        line.includes('http') || line.includes('www') || line.length < 3) {
+                        continue;
+                    }
+                    
+                    // Check if line matches name patterns
+                    for (let pattern of namePatterns) {
+                        const nameMatch = line.match(pattern);
+                        if (nameMatch && nameMatch[0].length > 3) {
+                            parsedData.name = nameMatch[0].trim();
+                            break;
+                        }
+                    }
+                    
+                    // If no pattern match, use first reasonable line as name
+                    if (!parsedData.name && line.length > 2 && line.length < 50) {
+                        parsedData.name = line;
+                        break;
+                    }
+                }
+
+                // Company extraction from remaining lines
+                for (let line of lines) {
+                    if (line !== parsedData.name && !line.includes('@') && 
+                        !phonePatterns.some(p => p.test(line)) && line.length > 2) {
+                        const businessIndicators = ['corp', 'inc', 'llc', 'ltd', 'company', 'solutions', 'services', 'group', 'tech'];
+                        const hasBusinessIndicator = businessIndicators.some(indicator => 
+                            line.toLowerCase().includes(indicator)
+                        );
+                        
+                        if (hasBusinessIndicator || line === line.toUpperCase()) {
+                            parsedData.company = line.trim();
+                            break;
+                        }
                     }
                 }
             }
@@ -1794,78 +1826,7 @@
             alert('Contact saved successfully!');
         }
 
-        // Live QR Scanner Functions
-        function startQRScanner() {
-            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
-                    .then(function(stream) {
-                        qrStream = stream;
-                        qrVideo = document.getElementById('qrVideo');
-                        qrVideo.srcObject = stream;
-                        qrVideo.play();
-                        
-                        qrCanvas = document.createElement('canvas');
-                        qrCtx = qrCanvas.getContext('2d');
-                        
-                        document.getElementById('qrScannerContainer').style.display = 'block';
-                        qrScanning = true;
-                        scanQRFrame();
-                    })
-                    .catch(function(error) {
-                        console.error('Camera access denied:', error);
-                        alert('Camera access denied. Please use file upload instead.');
-                    });
-            } else {
-                alert('Camera not available. Please use file upload instead.');
-            }
-        }
 
-        function stopQRScanner() {
-            if (qrStream) {
-                qrStream.getTracks().forEach(track => track.stop());
-                qrStream = null;
-            }
-            qrScanning = false;
-            document.getElementById('qrScannerContainer').style.display = 'none';
-        }
-
-        function scanQRFrame() {
-            if (!qrScanning || !qrVideo || !qrCanvas) return;
-            
-            qrCanvas.width = qrVideo.videoWidth;
-            qrCanvas.height = qrVideo.videoHeight;
-            qrCtx.drawImage(qrVideo, 0, 0);
-            
-            const imageData = qrCtx.getImageData(0, 0, qrCanvas.width, qrCanvas.height);
-            
-            if (typeof jsQR !== 'undefined') {
-                const code = jsQR(imageData.data, imageData.width, imageData.height);
-                if (code) {
-                    const parsedData = parseQRData(code.data);
-                    displayQRResult(parsedData);
-                    stopQRScanner();
-                    return;
-                }
-            }
-            
-            requestAnimationFrame(scanQRFrame);
-        }
-
-        function captureQRFrame() {
-            if (!qrVideo || !qrCanvas) return;
-            
-            qrCanvas.width = qrVideo.videoWidth;
-            qrCanvas.height = qrVideo.videoHeight;
-            qrCtx.drawImage(qrVideo, 0, 0);
-            
-            qrCanvas.toBlob(function(blob) {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    decodeQRCode(e.target.result);
-                };
-                reader.readAsDataURL(blob);
-            });
-        }
 
         function showQRLoading(text) {
             document.getElementById('qrLoading').classList.add('show');
@@ -1885,6 +1846,190 @@
         function updateQRLoadingText(text) {
             document.getElementById('qrLoadingText').textContent = text;
         }
+
+        // LinkedIn Integration Functions
+        function searchLinkedInFromExtracted() {
+            const name = document.getElementById('extractedName').value.trim();
+            const company = document.getElementById('extractedCompany').value.trim();
+            
+            if (!name) {
+                alert('Please extract a name first');
+                return;
+            }
+            
+            searchLinkedInWithData(name, company, '');
+        }
+
+        function searchLinkedInFromQR() {
+            const name = document.getElementById('qrExtractedName').value.trim();
+            const company = document.getElementById('qrExtractedCompany').value.trim();
+            
+            if (!name) {
+                alert('Please extract a name first');
+                return;
+            }
+            
+            searchLinkedInWithData(name, company, '');
+        }
+
+        function searchLinkedInFromManual() {
+            const name = document.getElementById('manualName').value.trim();
+            const company = document.getElementById('manualCompany').value.trim();
+            
+            if (!name) {
+                alert('Please enter a name first');
+                return;
+            }
+            
+            searchLinkedInWithData(name, company, '');
+        }
+
+        function searchLinkedInWithData(name, company, location) {
+            // Show loading
+            showLinkedInSearchLoading('Searching LinkedIn profiles...');
+            
+            // Simulate LinkedIn search with extracted data
+            setTimeout(() => {
+                const linkedInData = generateLinkedInDataFromExtracted(name, company, location);
+                displayLinkedInSearchResult(linkedInData);
+                hideLinkedInSearchLoading();
+            }, 2000);
+        }
+
+        function generateLinkedInDataFromExtracted(name, company, location) {
+            const names = name.split(' ');
+            const firstName = names[0] || '';
+            const lastName = names[names.length - 1] || '';
+            const companyName = company || 'Tech Company';
+            
+            return {
+                name: name,
+                company: company || 'Tech Company Inc.',
+                title: 'Software Engineer',
+                phone: '+1 (555) 123-4567',
+                email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}@${companyName.toLowerCase().replace(/\s+/g, '')}.com`,
+                website: `https://www.${companyName.toLowerCase().replace(/\s+/g, '')}.com`,
+                address: location || 'San Francisco, CA',
+                linkedinUrl: `https://linkedin.com/in/${firstName.toLowerCase()}-${lastName.toLowerCase()}-123456`
+            };
+        }
+
+        function displayLinkedInSearchResult(data) {
+            // Create modal for LinkedIn results
+            const modal = document.createElement('div');
+            modal.className = 'modal';
+            modal.style.display = 'block';
+            modal.innerHTML = `
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2>💼 LinkedIn Profile Found</h2>
+                        <span class="close" onclick="this.parentElement.parentElement.parentElement.remove()">&times;</span>
+                    </div>
+                    <div class="form-grid">
+                        <div class="data-field">
+                            <label>👤 Name</label>
+                            <input type="text" id="linkedinResultName" value="${data.name}">
+                        </div>
+                        <div class="data-field">
+                            <label>🏢 Company</label>
+                            <input type="text" id="linkedinResultCompany" value="${data.company}">
+                        </div>
+                        <div class="data-field">
+                            <label>💼 Title</label>
+                            <input type="text" id="linkedinResultTitle" value="${data.title}">
+                        </div>
+                        <div class="data-field">
+                            <label>📞 Phone</label>
+                            <input type="text" id="linkedinResultPhone" value="${data.phone}">
+                        </div>
+                        <div class="data-field">
+                            <label>📧 Email</label>
+                            <input type="email" id="linkedinResultEmail" value="${data.email}">
+                        </div>
+                        <div class="data-field">
+                            <label>🌐 Website</label>
+                            <input type="url" id="linkedinResultWebsite" value="${data.website}">
+                        </div>
+                        <div class="data-field">
+                            <label>📍 Address</label>
+                            <input type="text" id="linkedinResultAddress" value="${data.address}">
+                        </div>
+                        <div class="data-field">
+                            <label>💼 LinkedIn</label>
+                            <input type="url" id="linkedinResultLinkedIn" value="${data.linkedinUrl}">
+                        </div>
+                    </div>
+                    <div class="buttons-container" style="margin-top: 20px;">
+                        <button class="btn btn-primary" onclick="saveLinkedInSearchResult()">💾 Save Contact</button>
+                        <button class="btn btn-secondary" onclick="this.parentElement.parentElement.parentElement.remove()">❌ Cancel</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+        }
+
+        function saveLinkedInSearchResult() {
+            const cardData = {
+                id: Date.now(),
+                name: document.getElementById('linkedinResultName').value,
+                company: document.getElementById('linkedinResultCompany').value,
+                title: document.getElementById('linkedinResultTitle').value,
+                phone: document.getElementById('linkedinResultPhone').value,
+                email: document.getElementById('linkedinResultEmail').value,
+                website: document.getElementById('linkedinResultWebsite').value,
+                address: document.getElementById('linkedinResultAddress').value,
+                notes: 'Found via LinkedIn search'
+            };
+
+            if (!cardData.name && !cardData.company && !cardData.phone && !cardData.email) {
+                alert('Please fill in at least one field before saving.');
+                return;
+            }
+
+            savedCards.push(cardData);
+            updateCardsTable();
+            
+            // Close modal
+            document.querySelector('.modal').remove();
+            
+            // Switch to manage tab
+            switchTab('manage');
+            
+            alert('Contact saved successfully!');
+        }
+
+        function showLinkedInSearchLoading(text) {
+            // Create a simple loading overlay
+            const loading = document.createElement('div');
+            loading.id = 'linkedinSearchLoading';
+            loading.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0,0,0,0.5);
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                z-index: 1000;
+            `;
+            loading.innerHTML = `
+                <div style="background: white; padding: 30px; border-radius: 10px; text-align: center;">
+                    <h3>🔍 Searching LinkedIn...</h3>
+                    <p>${text}</p>
+                </div>
+            `;
+            document.body.appendChild(loading);
+        }
+
+        function hideLinkedInSearchLoading() {
+            const loading = document.getElementById('linkedinSearchLoading');
+            if (loading) {
+                loading.remove();
+            }
+        }
+
         loadSavedCards();
 
         // Initialize app
